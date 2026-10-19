@@ -188,6 +188,7 @@ padding:7px 12px;border-radius:999px;cursor:pointer}.tab.on{background:var(--ink
 .card{background:#fff;border:1px solid var(--line);border-radius:13px;padding:13px;margin-bottom:10px}
 .card.ok{border-left:4px solid var(--g)}.card.warn{border-left:4px solid var(--am)}
 .card.no{border-left:4px solid var(--gy);opacity:.92}
+.card.dead{border-left:4px solid #ef4444;opacity:.9}
 .hd{display:flex;gap:9px;align-items:flex-start}
 .av{width:34px;height:34px;border-radius:9px;flex:0 0 auto;display:flex;align-items:center;justify-content:center;
 font-size:17px;background:var(--soft)}.av.v{background:var(--gs)}.av.f{background:var(--as)}.av.r{background:var(--gys)}
@@ -211,7 +212,7 @@ footer{text-align:center;color:#98a2b3;font-size:11.5px;margin-top:14px;line-hei
 <header><div class="brand"><div class="logo">🆓</div><h1>白嫖雷达</h1><span class="tag">__T__</span></div>
 <p class="lead">只收「0 元领 / 免费权益」，不收导购价。每条标注核验档与出处——能验的验了，验不了的标出来，不装作都真。</p></header>
 <div class="stats"><div class="st a"><b>__OK__</b><span>已核验</span></div>
-<div class="st b"><b>__WN__</b><span>待确认</span></div><div class="st c"><b>__NO__</b><span>不推荐</span></div></div>
+<div class="st b"><b>__WN__</b><span>待确认</span></div><div class="st c"><b>__NO__</b><span>不推荐/失效</span></div></div>
 <div class="tabs"><button class="tab on" data-f="all">全部</button><button class="tab" data-f="ok">已核验</button>
 <button class="tab" data-f="warn">待确认</button><button class="tab" data-f="risk">避坑</button></div>
 <div id="list"></div>
@@ -224,7 +225,7 @@ footer{text-align:center;color:#98a2b3;font-size:11.5px;margin-top:14px;line-hei
 <footer>__T__ 生成 · 福利以官方页面为准，本页只做聚合、核验与提醒<br>不代登录、不代领取、不存任何账号密码</footer></div>
 <script>
 const D=__D__;const L=document.getElementById('list');let f='all';
-const LV={ok:['🟢','已核验','b-ok'],warn:['🟠','待确认','b-warn'],no:['⚪','不推荐','b-no']};
+const LV={ok:['🟢','已核验','b-ok'],warn:['🟠','待确认','b-warn'],no:['⚪','不推荐','b-no'],dead:['🔴','链接失效','b-no']};
 const IC={video:'📺',food:'🛵',bank:'🏦',vip:'💳',telecom:'📡',pay:'💰',sign:'🎯',risk:'🚫'};
 function render(){const r=D.filter(d=>f==='all'||d.level===f||(f==='risk'&&d.cat==='risk'));
  if(!r.length){L.innerHTML='<div class="empty">这一类暂时没有条目</div>';return;}
@@ -234,7 +235,7 @@ function render(){const r=D.filter(d=>f==='all'||d.level===f||(f==='risk'&&d.cat
  <div class="de">${d.gift}</div></div></div>
  <div class="how"><b>怎么领：</b>${d.how}</div>
  <div class="src"><b>核验依据：</b>${d.src}</div>
- ${d.note?`<div class="note">${d.note}</div>`:''}
+ ${d.live===false?`<div class="note" style="color:#b45309">⚠️ 自动检测时源站未响应（可能反爬/网络不通，不代表活动失效），请自行点开确认</div>`:''}${d.note?`<div class="note">${d.note}</div>`:''}
  <div class="foot"><span class="tm">${d.date}</span>
  <a class="btn ${d.level==='no'?'gray':''}" href="${d.url}" target="_blank">${d.level==='no'?'看原文（不建议参与）':'去领取'}</a></div>
  </div>`}).join('');}
@@ -243,13 +244,30 @@ document.querySelectorAll('.tab').forEach(t=>t.addEventListener('click',()=>{
 render();</script></body></html>"""
 
 
+def check(url):
+    """每日存活检测：挂了就标灰，绝不假装还在。"""
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": UA})
+        with urllib.request.urlopen(req, timeout=12) as r:
+            return True, r.status
+    except Exception as e:
+        code = getattr(e, "code", 0)
+        return False, code or 0
+
+
 def main():
     now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+    for c in CURATED:
+        ok, st = check(c["url"])
+        c["live"], c["http"] = ok, st
+        if not ok:
+            # 源站未响应≠活动失效：可能是反爬/网络不通，只标待复核，不判死
+            c["date"] = f"{c['date']} · 源站本轮未响应(HTTP {st})，需自行点开确认"
     page = (TPL.replace("__D__", json.dumps(CURATED, ensure_ascii=False))
                .replace("__T__", now)
                .replace("__OK__", str(sum(1 for c in CURATED if c["level"] == "ok")))
                .replace("__WN__", str(sum(1 for c in CURATED if c["level"] == "warn")))
-               .replace("__NO__", str(sum(1 for c in CURATED if c["cat"] == "risk"))))
+               .replace("__NO__", str(sum(1 for c in CURATED if c["cat"] == "risk" or c["level"] == "dead"))))
     open(os.path.join(HERE, "index.html"), "w", encoding="utf-8").write(page)
     json.dump({"time": now, "items": CURATED},
               open(os.path.join(HERE, "data.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
